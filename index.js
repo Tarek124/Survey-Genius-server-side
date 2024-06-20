@@ -109,6 +109,21 @@ async function run() {
       }
     });
 
+    // Route to get most voted surveys
+    app.get("/api/most-voted-surveys", async (req, res) => {
+      try {
+        const surveys = await surveysCollection
+          .find()
+          .sort({ votes: -1 })
+          .limit(6)
+          .toArray();
+        res.json(surveys);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    });
+
     // Route to get latest surveys
     app.get("/api/latest-surveys", async (req, res) => {
       try {
