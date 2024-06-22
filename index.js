@@ -17,6 +17,7 @@ app.use(express.json());
 // custom middleware
 //verify token
 const verifyToken = (req, res, next) => {
+  console.log(req.headers.token);
   if (!req.headers.token) {
     return res.status(401).send({ message: "unauthorized user" });
   }
@@ -47,9 +48,13 @@ async function run() {
     );
     const userCollection = client.db("assignment-12").collection("users");
     const surveysCollection = client.db("assignment-12").collection("surveys");
+    const unpublishedSurveysCollection = client
+      .db("assignment-12")
+      .collection("unpublishedSurveys");
     const paymentCollection = client.db("assignment-12").collection("payments");
     const commentCollection = client.db("assignment-12").collection("comments");
     const votesCollection = client.db("assignment-12").collection("votes");
+    const reportsCollection = client.db("assignment-12").collection("reports");
 
     app.post("/jwt", (req, res) => {
       const user = req.body;
@@ -74,12 +79,54 @@ async function run() {
       const result = await userCollection.findOne(query);
       res.send(result);
     });
+    app.get("/admin/allUsers", async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
 
     //all survey
     app.get("/allsurveys", async (req, res) => {
       const result = await surveysCollection.find().toArray();
       res.send(result);
     });
+
+    //unpublished Surveys
+    app.get("/unpublished", async (req, res) => {
+      const result = await unpublishedSurveysCollection.find().toArray();
+      res.send(result);
+    });
+
+    //create survey
+    app.post("/surveyor/create", async (req, res) => {
+      const data = req.body;
+      const result = await surveysCollection.insertOne(data);
+      res.send(result);
+    });
+
+    app.post("/handleSurveys", async (req, res) => {
+      const data = req.body;
+      if (data?.condition === "publish") {
+        const query = { _id: new ObjectId(data.id) };
+        const find = await unpublishedSurveysCollection.findOne(query);
+        const setData = await surveysCollection.insertOne(find);
+        if (setData.insertedId) {
+          const deleteUnpublishedSurveys =
+            await unpublishedSurveysCollection.deleteOne(query);
+          return res.send(deleteUnpublishedSurveys);
+        }
+      }
+
+      const query = { _id: new ObjectId(data.id) };
+      const find = await surveysCollection.findOne(query);
+      const setData = await unpublishedSurveysCollection.insertOne(find);
+      if (setData.insertedId) {
+        const deleteUnpublishedSurveys = await surveysCollection.deleteOne(
+          query
+        );
+        return res.send(deleteUnpublishedSurveys);
+      }
+    });
+
     //survey details
     app.get("/detail", async (req, res) => {
       const { email, id } = req.query;
@@ -138,6 +185,7 @@ async function run() {
         res.status(500).json({ error: "Internal server error" });
       }
     });
+
     // payment Intent
     app.post("/create-payment-intent", async (req, res) => {
       const { price } = req.body;
@@ -167,6 +215,7 @@ async function run() {
         res.status(500).json({ message: "Failed to insert payment" });
       }
     });
+
     //comments
     app.post("/comment", async (req, res) => {
       const data = req.body;
@@ -176,6 +225,12 @@ async function run() {
     app.get("/comments", async (req, res) => {
       const { id } = req.query;
       const query = { surveyId: id };
+      const result = await commentCollection.find(query).toArray();
+      res.send(result);
+    });
+    app.get("/user/comments", async (req, res) => {
+      const { name } = req.query;
+      const query = { name };
       const result = await commentCollection.find(query).toArray();
       res.send(result);
     });
@@ -196,8 +251,84 @@ async function run() {
       const result = await surveysCollection.updateOne(query, update);
       res.send(result);
 
-      const voteData = { surveyId: data.surveyId, userEmail: data.userEmail };
+      const voteData = {
+        surveyId: data.surveyId,
+        userEmail: data.userEmail,
+        time: data.time,
+        response: data.response,
+        title: data.title,
+      };
       const insertVote = await votesCollection.insertOne(voteData);
+    });
+    app.get("/admin/votesAndPayments", async (req, res) => {
+      const votes = await votesCollection.find().toArray();
+      const payments = await paymentCollection.find().toArray();
+      res.send({ payments, votes });
+    });
+
+    //roport related api
+    app.post("/report", async (req, res) => {
+      const reportData = req.body;
+      const result = await reportsCollection.insertOne(reportData);
+      res.send(result);
+    });
+    app.get("/reports", async (req, res) => {
+      const { email } = req.query;
+      const query = { email };
+      const result = await reportsCollection.find(query).toArray();
+
+      res.send(result);
+    });
+    // admin change the role
+    app.post("/admin/role", async (req, res) => {
+      const { role, userId } = req.body;
+      const query = { _id: new ObjectId(userId) };
+      const update = {
+        $set: { role },
+      };
+      const result = await userCollection.updateOne(query, update);
+      res.send(result);
+    });
+
+    //surveyor surveys
+    app.get("/surveyor/survey", async (req, res) => {
+      const { id } = req.query;
+      const query = { _id: new ObjectId(id) };
+      const result = await surveysCollection.findOne(query);
+      res.send(result);
+    });
+    //update survey
+    app.post("/surveyor/update", async (req, res) => {
+      const { category, updatedBy, deadline, description, id, title } =
+        req.body;
+      const query = { _id: new ObjectId(id) };
+      const update = {
+        $set: { category, updatedBy, deadline, description, title },
+      };
+      const result = await surveysCollection.updateOne(query, update);
+      res.send(result);
+    });
+    app.get("/surveyor/allSurvey", async (req, res) => {
+      const { email } = req.query;
+      const updatedBy = { updatedBy: email };
+      const createdBy = { createdBy: email };
+      if (email) {
+        const updatedBypublish = await surveysCollection
+          .find(updatedBy)
+          .toArray();
+        const updatedByunpublish = await unpublishedSurveysCollection
+          .find(updatedBy)
+          .toArray();
+        const createdBypublish = await surveysCollection
+          .find(createdBy)
+          .toArray();
+        const createdByunpublish = await unpublishedSurveysCollection
+          .find(createdBy)
+          .toArray();
+        const updated = [...updatedBypublish, ...updatedByunpublish];
+        const created = [...createdBypublish, ...createdByunpublish];
+        res.send({ updated, created });
+      }
     });
   } finally {
   }
