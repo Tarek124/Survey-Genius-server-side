@@ -333,7 +333,7 @@ async function run() {
   } finally {
   }
 }
-run().catch(console.dir);
+run().catch(console.dir)
 
 app.listen(port, () => {
   console.log(`http://localhost:${port}`);
